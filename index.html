@@ -155,6 +155,7 @@
   <h1>Shiniji BOM Builder <small>Item master · 782 รายการ (ปรับปรุงล่าสุด ก.ย. 2569)</small></h1>
   <div class="hdr-actions">
     <button class="ghost" id="btnNewBom">+ สูตรใหม่</button>
+    <button class="ghost" id="btnSaveBoms">บันทึก</button>
     <button id="btnExport">Export CSV</button>
   </div>
 </header>
@@ -167,6 +168,9 @@
         <label for="outputSearch">ค้นหา item ที่เป็นผลลัพธ์ของสูตรนี้</label>
         <input id="outputSearch" type="text" placeholder="พิมพ์ชื่อไทยหรืออังกฤษ…" autocomplete="off">
         <div class="search-results" id="outputResults" style="display:none"></div>
+      </div>
+      <div style="margin-top:8px">
+        <button class="subtle" id="btnAddNewOutput">+ เมนู/item ใหม่ (ไม่มีในลิสต์)</button>
       </div>
       <div id="outputSelected" style="margin-top:10px; display:none"></div>
     </div>
@@ -220,7 +224,7 @@
 
 <div class="modal-backdrop" id="newItemModal" style="display:none">
   <div class="modal">
-    <h3>สร้าง item ใหม่</h3>
+    <h3 id="niTitle">สร้าง item ใหม่</h3>
     <div class="sub">ระบบจะรันรหัสถัดไปให้อัตโนมัติตาม CAT ที่เลือก</div>
     <div class="field">
       <label for="niCat">หมวด (CAT)</label>
@@ -230,6 +234,7 @@
       <span>รหัสที่จะได้รับ</span>
       <strong class="mono" id="niCodePreview">—</strong>
     </div>
+    <div class="sub" id="niCodeMeta" style="margin-top:-10px; margin-bottom:14px">—</div>
     <div class="field"><label for="niTh">ชื่อไทย</label><input id="niTh" type="text"></div>
     <div class="field"><label for="niEn">ชื่ออังกฤษ</label><input id="niEn" type="text"></div>
     <div class="field-row">
@@ -268,6 +273,8 @@ const CATS = [
   ["214","Cognac/Armagnac"],["215","Gin"],["216","Liquor/Bitter"],["217","Rum"],["218","Tequila"],["219","Vodka"]
 ];
 
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxRpiRQROj30fQinW9WLjITxoMn-PNVLaRhpcRDRUfMkDgYFuUwtfDHfYpWlUiphSyGAQ/exec';
+
 let itemsByCode = {};
 ITEMS.forEach(it => itemsByCode[it.code] = it);
 let sessionNewItems = [];
@@ -278,22 +285,69 @@ let activeBomIdx = 0;
 function newBom(){ return { id: Date.now()+Math.random(), outputCode:null, lines:[] }; }
 function activeBom(){ return boms[activeBomIdx]; }
 
+async function loadBomsFromBackend(){
+  try{
+    const res = await fetch(BACKEND_URL + '?action=listBoms', {cache:'no-store'});
+    const data = await res.json();
+    if(data.ok && Array.isArray(data.boms) && data.boms.length){
+      boms = data.boms.map(b => ({
+        id: b.id,
+        outputCode: b.outputCode || null,
+        lines: (b.lines||[]).map(l => ({ code: l.code || null, qty: l.qty, yield: l.yield }))
+      }));
+      activeBomIdx = 0;
+      showToast('โหลดสูตรที่บันทึกไว้แล้ว (' + boms.length + ' สูตร)');
+      renderAll();
+    }
+  }catch(e){
+    console.error('loadBomsFromBackend failed', e);
+    showToast('โหลดข้อมูลที่บันทึกไว้ไม่สำเร็จ — เริ่มจากสูตรว่างแทน');
+  }
+}
+
+async function saveBomsToBackend(){
+  const btn = document.getElementById('btnSaveBoms');
+  const original = btn.textContent;
+  btn.textContent = 'กำลังบันทึก…'; btn.disabled = true;
+  try{
+    const payload = {
+      action: 'saveBoms',
+      boms: boms.filter(b => b.outputCode).map(b => ({
+        id: String(b.id),
+        outputCode: b.outputCode,
+        outputName: (itemsByCode[b.outputCode] || {}).th || '',
+        lines: b.lines.filter(l => l.code).map(l => ({ code: l.code, qty: l.qty, yield: l.yield }))
+      }))
+    };
+    const res = await fetch(BACKEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(data.ok) showToast('บันทึกลง Google Sheet เรียบร้อยแล้ว');
+    else showToast('บันทึกไม่สำเร็จ: ' + (data.error || 'unknown error'));
+  }catch(e){
+    console.error('saveBomsToBackend failed', e);
+    showToast('บันทึกไม่สำเร็จ — เช็คอินเทอร์เน็ตแล้วลองอีกครั้ง');
+  }
+  btn.textContent = original; btn.disabled = false;
+}
+
 function groupPrefixForCat(cat3){
   // Food cats 1xx -> group 1 (110), Beverage cats 2xx -> group 2 (120)
   return cat3.startsWith('2') ? '120' : '110';
 }
-function nextCodeForCat(cat3){
+function catStats(cat3){
   const prefix = groupPrefixForCat(cat3) + cat3;
-  let maxNo = -1;
-  ITEMS.forEach(it => { if(it.code.startsWith(prefix) && it.code.length===10){
-    const no = parseInt(it.code.slice(6),10); if(!isNaN(no) && no>maxNo) maxNo=no;
+  let maxNo = -1, count = 0;
+  const scan = (arr) => arr.forEach(it => { if(it.code.startsWith(prefix) && it.code.length===10){
+    count++; const no = parseInt(it.code.slice(6),10); if(!isNaN(no) && no>maxNo) maxNo=no;
   }});
-  sessionNewItems.forEach(it => { if(it.code.startsWith(prefix) && it.code.length===10){
-    const no = parseInt(it.code.slice(6),10); if(!isNaN(no) && no>maxNo) maxNo=no;
-  }});
-  const next = maxNo+1;
-  return prefix + String(next).padStart(4,'0');
+  scan(ITEMS); scan(sessionNewItems);
+  return { prefix, maxNo, count, next: prefix + String(maxNo+1).padStart(4,'0') };
 }
+function nextCodeForCat(cat3){ return catStats(cat3).next; }
 
 function searchItems(q){
   q = q.trim().toLowerCase();
@@ -454,17 +508,40 @@ document.getElementById('btnNewBom').addEventListener('click', () => {
   boms.push(newBom()); activeBomIdx = boms.length-1; renderAll();
 });
 
+document.getElementById('btnSaveBoms').addEventListener('click', saveBomsToBackend);
+
 // ---------- new item modal ----------
 const modal = document.getElementById('newItemModal');
 const niCat = document.getElementById('niCat');
 CATS.forEach(([code,name]) => {
   const opt = document.createElement('option'); opt.value=code; opt.textContent = `${code} — ${name}`; niCat.appendChild(opt);
 });
-function updateCodePreview(){ document.getElementById('niCodePreview').textContent = nextCodeForCat(niCat.value); }
+function updateCodePreview(){
+  const s = catStats(niCat.value);
+  document.getElementById('niCodePreview').textContent = s.next;
+  document.getElementById('niCodeMeta').textContent = s.count>0
+    ? `หมวดนี้มีอยู่แล้ว ${s.count} รายการ · เลขล่าสุดที่ใช้คือ ${String(s.maxNo).padStart(4,'0')}`
+    : 'หมวดนี้ยังไม่มี item เลย เริ่มที่ 0000';
+}
 niCat.addEventListener('change', updateCodePreview);
 
+let modalContext = null; // 'output' | null (generic — used by ingredient-side "add new item")
+
+document.getElementById('btnAddNewOutput').addEventListener('click', () => {
+  modalContext = 'output';
+  document.getElementById('niTitle').textContent = 'สร้างเมนู/FG ใหม่';
+  modal.style.display='flex';
+  niCat.value = '126'; // default to FG - Processed Foods (Bom); user can change
+  updateCodePreview();
+  ['niTh','niEn','niSu','niRu'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('niCf').value=1; document.getElementById('niPrice').value=0;
+  document.getElementById('niYield').value=100;
+});
+
 document.getElementById('btnAddNewItem').addEventListener('click', () => {
-  modal.style.display='flex'; updateCodePreview();
+  modalContext = null;
+  document.getElementById('niTitle').textContent = 'สร้าง item วัตถุดิบใหม่';
+  modal.style.display='flex'; niCat.value = CATS[0][0]; updateCodePreview();
   ['niTh','niEn','niSu','niRu'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('niCf').value=1; document.getElementById('niPrice').value=0;
   document.getElementById('niYield').value=100;
@@ -487,8 +564,13 @@ document.getElementById('niConfirm').addEventListener('click', () => {
   };
   ITEMS.push(newItem); itemsByCode[code] = newItem; sessionNewItems.push(newItem);
   modal.style.display='none';
-  showToast(`สร้าง item ${code} เรียบร้อย`);
-  renderNewItems();
+  if(modalContext === 'output'){
+    activeBom().outputCode = code;
+    showToast(`สร้าง item ${code} และตั้งเป็นเมนูของสูตรนี้แล้ว`);
+  } else {
+    showToast(`สร้าง item ${code} เรียบร้อย — ค้นหาชื่อนี้เพื่อเพิ่มเข้าบรรทัดวัตถุดิบได้เลย`);
+  }
+  renderAll();
 });
 
 // ---------- toast ----------
@@ -531,6 +613,7 @@ document.getElementById('btnExport').addEventListener('click', () => {
 });
 
 renderAll();
+loadBomsFromBackend();
 </script>
 </body>
 </html>
