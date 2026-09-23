@@ -66,14 +66,14 @@
   .card h2{font-size:14px; margin:0 0 12px; font-weight:600}
   .card h2 .count{color:var(--ink-dim); font-weight:400}
 
-  button{
+  button, a.ghost{
     font-family:inherit; font-size:13px; font-weight:600; cursor:pointer;
     border-radius:8px; border:1px solid transparent; padding:9px 14px;
     background:var(--indigo); color:#fff;
   }
   button:hover{background:var(--indigo-deep)}
-  button.ghost{background:transparent; color:var(--indigo); border-color:var(--indigo)}
-  button.ghost:hover{background:var(--indigo-tint)}
+  button.ghost, a.ghost{background:transparent; color:var(--indigo); border-color:var(--indigo)}
+  button.ghost:hover, a.ghost:hover{background:var(--indigo-tint)}
   button.subtle{background:transparent; color:var(--ink-dim); border-color:var(--line); font-weight:500}
   button.subtle:hover{color:var(--ink); border-color:var(--ink-dim)}
   button.danger-ghost{background:transparent; color:var(--brick); border:none; padding:4px 8px; font-weight:500}
@@ -162,6 +162,7 @@
   <h1>Shiniji BOM Builder <small>Item master · 782 รายการ (ปรับปรุงล่าสุด ก.ย. 2569)</small></h1>
   <div class="hdr-actions">
     <button class="ghost" id="btnNewBom">+ สูตรใหม่</button>
+    <a class="ghost" id="btnDownloadTemplate" href="./shiniji-bom-template.xlsx" download style="text-decoration:none; display:inline-flex; align-items:center">ดาวน์โหลด Template</a>
     <button class="ghost" id="btnUploadExcel">อัปโหลด Excel</button>
     <input type="file" id="excelFileInput" accept=".xlsx" style="display:none">
     <button class="ghost" id="btnSaveBoms">บันทึก</button>
@@ -235,7 +236,7 @@
   <div class="modal">
     <h3 id="niTitle">สร้าง item ใหม่</h3>
     <div class="sub">ระบบจะรันรหัสถัดไปให้อัตโนมัติตาม CAT ที่เลือก</div>
-    <div class="field">
+    <div class="field" id="niCatWrap">
       <label for="niCat">หมวด (CAT)</label>
       <select id="niCat"></select>
     </div>
@@ -580,6 +581,7 @@ let modalContext = null; // 'output' | null (generic — used by ingredient-side
 document.getElementById('btnAddNewOutput').addEventListener('click', () => {
   modalContext = 'output';
   document.getElementById('niTitle').textContent = 'สร้างเมนู/FG ใหม่';
+  document.getElementById('niCatWrap').style.display = 'none';
   document.getElementById('niSaleCatWrap').style.display = 'block';
   niSaleCat.value = SALE_CATS[0];
   populateCatOptions([...CATS, ...MENU_CATS]);
@@ -594,6 +596,7 @@ document.getElementById('btnAddNewOutput').addEventListener('click', () => {
 document.getElementById('btnAddNewItem').addEventListener('click', () => {
   modalContext = null;
   document.getElementById('niTitle').textContent = 'สร้าง item วัตถุดิบใหม่';
+  document.getElementById('niCatWrap').style.display = 'block';
   document.getElementById('niSaleCatWrap').style.display = 'none';
   populateCatOptions(CATS);
   modal.style.display='flex'; niCat.value = CATS[0][0]; updateCodePreview();
