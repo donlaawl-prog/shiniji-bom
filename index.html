@@ -244,6 +244,10 @@
       <strong class="mono" id="niCodePreview">—</strong>
     </div>
     <div class="sub" id="niCodeMeta" style="margin-top:-10px; margin-bottom:14px">—</div>
+    <div class="field" id="niSaleCatWrap">
+      <label for="niSaleCat">ประเภทเมนู (สำหรับ export ให้ตรงคอลัมน์ "Cat" ของที่ปรึกษา)</label>
+      <select id="niSaleCat"></select>
+    </div>
     <div class="field"><label for="niTh">ชื่อไทย</label><input id="niTh" type="text"></div>
     <div class="field"><label for="niEn">ชื่ออังกฤษ</label><input id="niEn" type="text"></div>
     <div class="field-row">
@@ -294,6 +298,11 @@ const CATS = [
 ];
 const MENU_CATS = [
   ["126","FG - Processed Foods (Bom)"],["127","FG - Sauces"]
+];
+// Verbatim from the consultant's recipe (F) sheet "Cat" column — text labels, no numeric code of their own.
+const SALE_CATS = [
+  "Appetizer","Age","Add On","Bakery","Donburi","Hot Donburi","Roll","Salad","Hand Roll",
+  "Foie Gras","Ice Cream","Sashimi","Yaki","Steak","Sushi","Yum","Izakaya","Lineman/Delivery","Kids Menu"
 ];
 
 const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxRpiRQROj30fQinW9WLjITxoMn-PNVLaRhpcRDRUfMkDgYFuUwtfDHfYpWlUiphSyGAQ/exec';
@@ -350,7 +359,7 @@ async function saveBomsToBackend(){
       })),
       items: sessionNewItems.map(it => ({
         code: it.code, th: it.th, en: it.en, cat: it.cat,
-        su: it.su, ru: it.ru, cf: it.cf, price: it.price, yl: it.yl
+        su: it.su, ru: it.ru, cf: it.cf, price: it.price, yl: it.yl, saleCat: it.saleCat || ''
       }))
     };
     const res = await fetch(BACKEND_URL, {
@@ -547,6 +556,10 @@ document.getElementById('btnSaveBoms').addEventListener('click', saveBomsToBacke
 // ---------- new item modal ----------
 const modal = document.getElementById('newItemModal');
 const niCat = document.getElementById('niCat');
+const niSaleCat = document.getElementById('niSaleCat');
+SALE_CATS.forEach(name => {
+  const opt = document.createElement('option'); opt.value = name; opt.textContent = name; niSaleCat.appendChild(opt);
+});
 function populateCatOptions(list){
   niCat.innerHTML = '';
   list.forEach(([code,name]) => {
@@ -567,7 +580,9 @@ let modalContext = null; // 'output' | null (generic — used by ingredient-side
 document.getElementById('btnAddNewOutput').addEventListener('click', () => {
   modalContext = 'output';
   document.getElementById('niTitle').textContent = 'สร้างเมนู/FG ใหม่';
-  populateCatOptions(MENU_CATS);
+  document.getElementById('niSaleCatWrap').style.display = 'block';
+  niSaleCat.value = SALE_CATS[0];
+  populateCatOptions([...CATS, ...MENU_CATS]);
   modal.style.display='flex';
   niCat.value = '126';
   updateCodePreview();
@@ -579,6 +594,7 @@ document.getElementById('btnAddNewOutput').addEventListener('click', () => {
 document.getElementById('btnAddNewItem').addEventListener('click', () => {
   modalContext = null;
   document.getElementById('niTitle').textContent = 'สร้าง item วัตถุดิบใหม่';
+  document.getElementById('niSaleCatWrap').style.display = 'none';
   populateCatOptions(CATS);
   modal.style.display='flex'; niCat.value = CATS[0][0]; updateCodePreview();
   ['niTh','niEn','niSu','niRu'].forEach(id=>document.getElementById(id).value='');
@@ -599,6 +615,7 @@ document.getElementById('niConfirm').addEventListener('click', () => {
     cf: parseFloat(document.getElementById('niCf').value)||1,
     price: parseFloat(document.getElementById('niPrice').value)||0,
     yl: yieldInput>0 ? 100/yieldInput : 1,
+    saleCat: modalContext==='output' ? niSaleCat.value : '',
     src: 'new-corrected'
   };
   ITEMS.push(newItem); itemsByCode[code] = newItem; sessionNewItems.push(newItem);
@@ -638,7 +655,7 @@ document.getElementById('btnExport').addEventListener('click', () => {
       const yieldVal = (line.yield===undefined || line.yield===null || line.yield==='') ? yieldPct(it) : line.yield;
       const unitCost = costWithYield(it, yieldVal);
       const qty = parseFloat(line.qty)||0;
-      rows.push([outIt.code, it.code, it.th, it.en, it.cat, qty, it.ru, yieldVal, unitCost.toFixed(4), (unitCost*qty).toFixed(2), it.src]);
+      rows.push([outIt.code, it.code, it.th, it.en, outIt.saleCat || '', qty, it.ru, yieldVal, unitCost.toFixed(4), (unitCost*qty).toFixed(2), it.src]);
     });
   });
   if(!any){ showToast('ยังไม่มีข้อมูลสูตรให้ export'); return; }
