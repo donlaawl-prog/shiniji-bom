@@ -300,10 +300,24 @@ const CATS = [
 const MENU_CATS = [
   ["126","FG - Processed Foods (Bom)"],["127","FG - Sauces"]
 ];
-// Verbatim from the consultant's recipe (F) sheet "Cat" column — text labels, no numeric code of their own.
+// Verbatim from the consultant's ms.cat (n) sheet — the "run.new.pos.code" scheme for new POS menu items.
+// code = 2-digit category within its group; group 1=Food, 2=Drink. Historical Pos.No in recipe(F) predates
+// this scheme and isn't contiguous with it, so new codes start fresh at 001 within each category here.
 const SALE_CATS = [
-  "Appetizer","Age","Add On","Bakery","Donburi","Hot Donburi","Roll","Salad","Hand Roll",
-  "Foie Gras","Ice Cream","Sashimi","Yaki","Steak","Sushi","Yum","Izakaya","Lineman/Delivery","Kids Menu"
+  {group:1, code:'01', name:'Add On'}, {group:1, code:'02', name:'AGE'}, {group:1, code:'03', name:'Appetizer'},
+  {group:1, code:'04', name:'Donburi'}, {group:1, code:'05', name:'Foie gras'}, {group:1, code:'06', name:'Hand Roll'},
+  {group:1, code:'07', name:'Hot Donburi'}, {group:1, code:'08', name:'ICE CREM'}, {group:1, code:'09', name:'Izakaya'},
+  {group:1, code:'10', name:'KIDS MENU'}, {group:1, code:'11', name:'Promotion CRM'}, {group:1, code:'12', name:'Roll'},
+  {group:1, code:'13', name:'Salad'}, {group:1, code:'14', name:'Sashimi'}, {group:1, code:'15', name:'SET ข้าว'},
+  {group:1, code:'16', name:'SHABU'}, {group:1, code:'17', name:'Soba&Zaru'}, {group:1, code:'18', name:'special menu'},
+  {group:1, code:'19', name:'STEAK'}, {group:1, code:'20', name:'Sushi'}, {group:1, code:'21', name:'YAKI'},
+  {group:1, code:'22', name:'Yum'}, {group:1, code:'23', name:'ปลาไท'}, {group:1, code:'80', name:'Bakery'},
+  {group:1, code:'81', name:'Delivery - Bakery'}, {group:1, code:'83', name:'PRODUCT LIneman'}, {group:1, code:'90', name:'Promotion'},
+  {group:2, code:'01', name:'Coffee'}, {group:2, code:'02', name:'Teas'}, {group:2, code:'03', name:'Coffee Hot'},
+  {group:2, code:'04', name:'Drinking'}, {group:2, code:'05', name:'Matcha series 14oz.'}, {group:2, code:'06', name:'Non - Coffee'},
+  {group:2, code:'07', name:'Non - Coffee Hot'}, {group:2, code:'08', name:'Smoothie'}, {group:2, code:'09', name:'Soda'},
+  {group:2, code:'10', name:'AT SHOT COFFEE'}, {group:2, code:'11', name:'Beer'}, {group:2, code:'12', name:'SAKE'},
+  {group:2, code:'13', name:'Delivery - DRINK'}, {group:2, code:'90', name:'Promotion'}
 ];
 
 const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxRpiRQROj30fQinW9WLjITxoMn-PNVLaRhpcRDRUfMkDgYFuUwtfDHfYpWlUiphSyGAQ/exec';
@@ -382,6 +396,21 @@ function groupPrefixForCat(cat3){
   // Food cats 1xx -> group 1 (110), Beverage cats 2xx -> group 2 (120)
   return cat3.startsWith('2') ? '120' : '110';
 }
+// Real Pos.No values in existing recipe(F) predate this scheme (no shared structure), so new codes
+// start at 001 within each group+cat and continue from whatever we've already created under this scheme.
+function nextMenuCode(group, catCode){
+  const prefix = String(group) + catCode;
+  let maxSeq = 0;
+  const scan = (arr) => arr.forEach(it => {
+    if(/^\d{6}$/.test(it.code) && it.code.startsWith(prefix)){
+      const seq = parseInt(it.code.slice(3), 10);
+      if(!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  });
+  scan(ITEMS); scan(sessionNewItems);
+  return prefix + String(maxSeq + 1).padStart(3, '0');
+}
+
 function catStats(cat3){
   const prefix = groupPrefixForCat(cat3) + cat3;
   let maxNo = -1, count = 0;
@@ -558,8 +587,11 @@ document.getElementById('btnSaveBoms').addEventListener('click', saveBomsToBacke
 const modal = document.getElementById('newItemModal');
 const niCat = document.getElementById('niCat');
 const niSaleCat = document.getElementById('niSaleCat');
-SALE_CATS.forEach(name => {
-  const opt = document.createElement('option'); opt.value = name; opt.textContent = name; niSaleCat.appendChild(opt);
+SALE_CATS.forEach((sc, idx) => {
+  const opt = document.createElement('option');
+  opt.value = String(idx);
+  opt.textContent = (sc.group===1?'Food':'Drink') + ' — ' + sc.name;
+  niSaleCat.appendChild(opt);
 });
 function populateCatOptions(list){
   niCat.innerHTML = '';
@@ -568,6 +600,17 @@ function populateCatOptions(list){
   });
 }
 function updateCodePreview(){
+  if(modalContext === 'output'){
+    const sc = SALE_CATS[parseInt(niSaleCat.value, 10)];
+    const next = nextMenuCode(sc.group, sc.code);
+    document.getElementById('niCodePreview').textContent = next;
+    const prefix = String(sc.group) + sc.code;
+    const existingCount = ITEMS.concat(sessionNewItems).filter(it => /^\d{6}$/.test(it.code) && it.code.startsWith(prefix)).length;
+    document.getElementById('niCodeMeta').textContent = existingCount>0
+      ? `หมวดนี้เราเพิ่มไปแล้ว ${existingCount} เมนู (ตามมาตรฐานใหม่ที่ตั้งไว้ ไม่นับ Pos.No เก่าของที่ปรึกษา)`
+      : 'ยังไม่เคยเพิ่มเมนูในหมวดนี้ตามมาตรฐานใหม่ เริ่มที่ 001';
+    return;
+  }
   const s = catStats(niCat.value);
   document.getElementById('niCodePreview').textContent = s.next;
   document.getElementById('niCodeMeta').textContent = s.count>0
@@ -575,6 +618,7 @@ function updateCodePreview(){
     : 'หมวดนี้ยังไม่มี item เลย เริ่มที่ 0000';
 }
 niCat.addEventListener('change', updateCodePreview);
+niSaleCat.addEventListener('change', updateCodePreview);
 
 let modalContext = null; // 'output' | null (generic — used by ingredient-side "add new item")
 
@@ -583,7 +627,7 @@ document.getElementById('btnAddNewOutput').addEventListener('click', () => {
   document.getElementById('niTitle').textContent = 'สร้างเมนู/FG ใหม่';
   document.getElementById('niCatWrap').style.display = 'none';
   document.getElementById('niSaleCatWrap').style.display = 'block';
-  niSaleCat.value = SALE_CATS[0];
+  niSaleCat.value = '0';
   populateCatOptions([...CATS, ...MENU_CATS]);
   modal.style.display='flex';
   niCat.value = '126';
@@ -608,8 +652,9 @@ document.getElementById('niCancel').addEventListener('click', () => modal.style.
 document.getElementById('niConfirm').addEventListener('click', () => {
   const th = document.getElementById('niTh').value.trim();
   if(!th){ showToast('กรอกชื่อไทยก่อนครับ'); return; }
-  const code = nextCodeForCat(niCat.value);
-  const catName = ([...CATS, ...MENU_CATS].find(c=>c[0]===niCat.value) || [])[1] || '';
+  const selectedSaleCat = modalContext==='output' ? SALE_CATS[parseInt(niSaleCat.value,10)] : null;
+  const code = modalContext === 'output' ? nextMenuCode(selectedSaleCat.group, selectedSaleCat.code) : nextCodeForCat(niCat.value);
+  const catName = modalContext === 'output' ? '' : (([...CATS, ...MENU_CATS].find(c=>c[0]===niCat.value) || [])[1] || '');
   const yieldInput = parseFloat(document.getElementById('niYield').value) || 100;
   const newItem = {
     code, th, en: document.getElementById('niEn').value.trim() || th,
@@ -618,7 +663,7 @@ document.getElementById('niConfirm').addEventListener('click', () => {
     cf: parseFloat(document.getElementById('niCf').value)||1,
     price: parseFloat(document.getElementById('niPrice').value)||0,
     yl: yieldInput>0 ? 100/yieldInput : 1,
-    saleCat: modalContext==='output' ? niSaleCat.value : '',
+    saleCat: selectedSaleCat ? selectedSaleCat.name : '',
     src: 'new-corrected'
   };
   ITEMS.push(newItem); itemsByCode[code] = newItem; sessionNewItems.push(newItem);
